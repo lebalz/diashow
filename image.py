@@ -1,6 +1,7 @@
 from typing import Literal, Tuple
 from PIL import Image as PilImg
 from pathlib import Path
+import config as conf
 
 
 class Image:
@@ -14,14 +15,18 @@ class Image:
             self.source = None
             self.img = pil
         self.box = (self.img.width, self.img.height)
-        self.resized_size = (self.img.width, self.img.height)
+        self.resized_size: Tuple[int, int] = (self.img.width, self.img.height)
         self.expands_full_size: bool = True
 
     @property
+    def entropy(self) -> float:
+        return self.img.entropy()
+
+    @property
     def ratio(self) -> float:
-        '''image ratio height / width
+        '''image ratio width / height
         '''
-        return self.img.height / self.img.width
+        return self.img.width / self.img.height
 
     @property
     def box(self):
@@ -33,23 +38,23 @@ class Image:
         self.expands_full_size = True
         if self.is_landscape:
             w = self.box[0]
-            h = int(self.ratio * self.box[0])
+            h = int(self.box[0] / self.ratio)
             if h > self.box[1]:
                 h = self.box[1]
-                w = int(self.box[1] / self.ratio)
+                w = int(self.box[1] * self.ratio)
                 self.expands_full_size = False
         else:
-            w = int(self.box[1] / self.ratio)
+            w = int(self.box[1] * self.ratio)
             h = self.box[1]
             if w > self.box[0]:
                 self.expands_full_size = False
                 w = self.box[0]
-                h = int(self.box[0] * self.ratio)
+                h = int(self.box[0] / self.ratio)
         self.resized_size = (w, h)
 
     @property
     def is_landscape(self):
-        return self.img.width > self.img.height
+        return self.ratio >= conf.LANDSCAPE_RATIO_THRESHOLD
 
     @property
     def size(self):
@@ -71,7 +76,7 @@ class Image:
         return self.img.resize(self.resized_size, resample=PilImg.BICUBIC)
 
     def zoomed_img(self, zoom: float, zoom_center: Tuple[float, float], size: Tuple[int, int]):
-        target_ratio = size[1] / size[0]
+        target_ratio = size[0] / size[1]
         w, h = self.img.size
         x = int(w * zoom_center[0])
         y = int(h * zoom_center[1])
@@ -83,7 +88,7 @@ class Image:
         left = int(x - w / zoom2)
         right = int(x + w / zoom2)
         w_new = right - left
-        h_new = w_new * target_ratio
+        h_new = w_new / target_ratio
         h_top = h_new * zoom_center[1]
         h_bottom = h_new - h_top
         top = int(max(y - h_top, 0))

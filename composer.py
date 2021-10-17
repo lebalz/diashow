@@ -2,6 +2,7 @@ from typing import List, Literal, Tuple
 from image import Image
 from PIL import Image as PilImg
 from functools import reduce
+import config as conf
 
 Align = Literal['vertical', 'horizontal']
 
@@ -59,22 +60,17 @@ class Composer():
     def boxes(self) -> List[Tuple[int, int]]:
         if self.length == 0:
             return [self.size]
-        if self.length == 1:
-            sz = self.images[0].resized_size
-            x = (self.size[0] - sz[0]) / 2
-            y = (self.size[1] - sz[1]) / 2
-            return [(int(x), int(y))]
         sizes = list(map(lambda im: im.resized_size, self.images))
         used = 0
         bx: List[Tuple[int, int]] = []
         for sz in sizes:
             if self.is_landscape:
-                x = (self.size[0] - sz[0]) / 2
-                bx.append((int(x), used))
+                # x = (self.size[0] - sz[0]) / 2
+                bx.append((int(0), used))
                 used += sz[1] + self.margin
             else:
-                y = (self.size[1] - sz[1]) / 2
-                bx.append((used, int(y)))
+                # y = (self.size[1] - sz[1]) / 2
+                bx.append((used, int(0)))
                 used += sz[0] + self.margin
         return bx
 
@@ -91,41 +87,38 @@ class Composer():
         return self.images[0].orientation
 
     @property
-    def used_space_by_images(self) -> int:
-        if self.length == 0:
-            return 0
-        if self.is_landscape:
-            return reduce(lambda res, img: res + img.resized_size[1], self.images, 0)
-        else:
-            return reduce(lambda res, img: res + img.resized_size[0], self.images, 0)
+    def used_height_by_images(self) -> int:
+        return reduce(lambda res, img: res + img.resized_size[1], self.images, 0)
 
     @property
-    def used_space(self) -> int:
+    def used_width_by_images(self) -> int:
+        return reduce(lambda res, img: res + img.resized_size[0], self.images, 0)
+
+    @property
+    def used_space_by_images(self) -> Tuple[int, int]:
+        if self.length == 0:
+            return (0, 0)
+        return (self.used_width_by_images, self.used_height_by_images)
+
+    @property
+    def used_space(self) -> Tuple[int, int]:
         '''including margins
         '''
         if self.length == 0:
-            return 0
-        return self.used_space_by_images + (self.length - 1) * self.margin
-
-    @property
-    def empty_space(self):
-        '''total empty space, margins do not count
-        '''
-        if self.length == 0:
-            return max(*self.size)
+            return (0, 0)
+        img = self.used_space_by_images
         if self.is_landscape:
-            return self.size[1] - self.used_space_by_images
-        return self.size[0] - self.used_space_by_images
+            return (img[0], img[1] + (self.length - 1) * self.margin)
+        return (img[0] + (self.length - 1) * self.margin, img[1])
 
     @property
-    def available_space(self):
+    def available_space(self) -> Tuple[int, int]:
         '''total available space, where margins do count too
         '''
         if self.length == 0:
-            return max(*self.size)
-        if self.is_landscape:
-            return self.size[1] - self.used_space
-        return self.size[0] - self.used_space
+            return self.size
+        used = self.used_space
+        return (self.size[0] - used[0], self.size[1] - used[1])
 
     def append(self, item: Image):
         self.images.append(item)
@@ -136,6 +129,13 @@ class Composer():
             return True
         try:
             if self.orientation == item.orientation:
+                if self.is_landscape:
+                    if conf.MAX_SPLITS_HORIZONTAL >= 0 and self.length > conf.MAX_SPLITS_HORIZONTAL:
+                        return False
+                else:
+                    if conf.MAX_SPLITS_VERTICAL >= 0 and self.length > conf.MAX_SPLITS_VERTICAL:
+                        return False
+
                 if self.length < 2:
                     return True
                 if not self.images_expand_fully:
@@ -153,12 +153,14 @@ class Composer():
                 self.image_slots = self.length
 
     def compose(self, align: Literal['start', 'center', 'end', 'space-between'] = 'start'):
+        self.images = sorted(self.images, key=lambda im: im.entropy, reverse=True)
         comp_img = PilImg.new('RGB', self.size)
         if self.length == 0:
             return comp_img
         self.image_slots = self.length
-        left_over = self.available_space / self.length
-        shift = 0
+        available = self.available_space
+        left_over = (available[0] / self.length, available[1] / self.length)
+        shift: Tuple[int, int] = (0, 0)
         for idx, box in enumerate(self.boxes):
             match align:
                 case 'center':
@@ -169,11 +171,14 @@ class Composer():
                     factor = 0 if idx == 0 else 1 + (1 / (self.length - 1))
                 case _:
                     factor = 0
-            shift += int(factor * left_over)
-            if self.is_landscape:
-                box = (box[0], box[1] + shift)
+            if self.length == 1:
+                shift = (shift[0] + int(factor * left_over[0]), shift[1] + int(factor * left_over[1]))
+            elif self.is_landscape:
+                shift = (0, shift[1] + int(factor * left_over[1]))
             else:
-                box = (box[0] + shift, box[1])
+                shift = (shift[0] + int(factor * left_over[0]), 0)
+
+            box = (box[0] + shift[0], box[1] + shift[1])
             img = self.images[idx].resized_img()
             comp_img.paste(img, box)
 

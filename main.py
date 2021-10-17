@@ -5,6 +5,7 @@ from PIL import Image as PilImg
 from pathlib import Path
 import shutil
 from composer import Composer
+import time
 
 
 def out_file(fname: str) -> Path:
@@ -35,11 +36,19 @@ if conf.CLEANUP:
 paths = sorted(Path(conf.IMAGE_SOURCE).iterdir(), key=conf.ORDER_FUNCTIONS[conf.ORDER_BY])
 idx = 1
 
-composer = Composer(conf.TARGET_DISPLAY, margin=(conf.MARGIN_HORIZONTAL_PX, conf.MARGIN_VERTICAL_PX))
-zoom_composer = Composer(conf.TARGET_DISPLAY, margin=(conf.MARGIN_HORIZONTAL_PX, conf.MARGIN_VERTICAL_PX))
+composer = Composer(conf.TARGET_DISPLAY, margin=(conf.GAP_HORIZONTAL_PX, conf.GAP_VERTICAL_PX))
+zoom_composer = Composer(conf.TARGET_DISPLAY, margin=(conf.GAP_HORIZONTAL_PX, conf.GAP_VERTICAL_PX))
 to_save: List[PilImg.Image] = []
 
+counter = 0
+t0 = time.perf_counter()
 for p in paths:
+    if counter % conf.REPORT_INTERVAL == 0:
+        print(
+            f'Processing {str(counter).zfill(len(str(len(paths))))}/{len(paths)} Images ({time.perf_counter() - t0}s)', end='')
+    else:
+        print('.', end="\n" if (counter + 1) % conf.REPORT_INTERVAL == 0 else '', flush=True)
+
     img = Image(src=p)
     if not conf.ZOOM_SPLITTED:
         zoom_composer.append(Image(pil=img.zoomed_img(conf.ZOOM_FACTOR, conf.ZOOM_CENTER, conf.TARGET_DISPLAY)))
@@ -64,6 +73,8 @@ for p in paths:
         to_save.clear()
     if current_zoom:
         to_save.append(current_zoom)
+    counter += 1
 if composer.length > 0:
     to_save.append(composer.compose(conf.ALIGN))
 save(to_save)
+print(f'Done in {(time.perf_counter() - t0) // 60} Minutes')
