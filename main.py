@@ -42,10 +42,19 @@ to_save: List[PilImg.Image] = []
 
 counter = 0
 t0 = time.perf_counter()
+total_samples = len(paths)
 for p in paths:
     if counter % conf.REPORT_INTERVAL == 0:
-        print(
-            f'Processing {str(counter).zfill(len(str(len(paths))))}/{len(paths)} Images ({time.perf_counter() - t0}s)', end='')
+        sample = str(counter).zfill(len(str(total_samples)))
+        t = round(time.perf_counter() - t0, 1)
+        unit = 's'
+        if t > 60:
+            t = round(t / 60, 1)
+            unit = 'm'
+        elif t > 3600:
+            t = round(t / 3600, 1)
+            unit = 'h'
+        print(f'Processing {sample}/{total_samples} Images ({t}{unit})', end='')
     else:
         print('.', end="\n" if (counter + 1) % conf.REPORT_INTERVAL == 0 else '', flush=True)
 
